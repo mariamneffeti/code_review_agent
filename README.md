@@ -1,4 +1,4 @@
-'''text
+```text
 pr-review-agent/
 ├── .github/
 │   └── workflows/
@@ -52,6 +52,5 @@ pr-review-agent/
 ├── pyproject.toml               # deps via uv/poetry
 ├── .env.example
 └── README.md
-'''
-
+```
 ![alt text](image.png)
