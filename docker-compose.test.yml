@@ -1,0 +1,13 @@
+services:
+  test-runner:
+    build: .
+    volumes:
+      - ./src:/app/src
+      - ./tests:/app/tests
+    env_file:
+      - .env
+    command: pytest tests/
+    depends_on:
+      - ngrok
+    environment:
+      - ENV=test

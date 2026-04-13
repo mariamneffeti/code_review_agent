@@ -1,0 +1,21 @@
+services:
+  app:
+    build: .
+    volumes:
+      - ./src:/app/src
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - ngrok
+  ngrok:
+    image: ngrok/ngrok:latest
+    restart: always
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+    command:
+      - "http"
+      - "app:8000"
+    ports:
+      - "4040:4040"
