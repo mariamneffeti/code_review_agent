@@ -1,44 +1,58 @@
-import hmac
+"""GitHub webhook authentication and pull request event routing."""
+
 import hashlib
+import hmac
 import json
-from fastapi import Request, HTTPException, Header,APIRouter,BackgroundTasks
+
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request
+from pydantic import ValidationError
+
 from ..config import settings
-from ..listener.schemas import GithubPayload
+from .schemas import GithubPayload
 
 router = APIRouter()
 
 
-def verify_signature(payload_body : bytes, signature_header : str):
-    """Verify wether the request is from github : webhook secret matches the github signature """
+def verify_signature(payload_body: bytes, signature_header: str | None) -> None:
+    """Reject requests that do not have a valid GitHub SHA-256 signature."""
     if not signature_header:
-        raise HTTPException(status_code=403,detail="x-hub-signature-256 header is missing")
-    hash_object = hmac.new(
-        settings.GITHUB_WEBHOOK_SECRET.get_secret_value().encode(),
-        msg=payload_body,
-        digestmod=hashlib.sha256
-    )
-    expected_signature = "sha256=" + hash_object.hexdigest()
-    if not hmac.compare_digest(expected_signature, signature_header):
-        raise HTTPException(status_code=403,detail="Invalid signature")
-async def run_agent_workflow(payload: GithubPayload):
-    """Run the agent workflow in background"""
-    # TODO: Implement the logic to trigger the agent workflow based on the payload
-    print(f"Running agent workflow with payload: {payload}")
-    pass
+        raise HTTPException(status_code=403, detail="x-hub-signature-256 header is missing")
+    if not settings.WEBHOOK_SECRET:
+        raise HTTPException(status_code=503, detail="Webhook secret is not configured")
+    digest = hmac.new(settings.WEBHOOK_SECRET.encode(), payload_body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(f"sha256={digest}", signature_header):
+        raise HTTPException(status_code=403, detail="Invalid signature")
+
+
+async def run_agent_workflow(payload: GithubPayload) -> None:
+    """Entry point queued for accepted pull request events."""
+    from ..agent.graph import run_review
+
+    await run_review(payload)
+
 
 @router.post("/webhook")
-async def github_webhook(request : Request, background_tasks : BackgroundTasks, x_hub_signature_256 : str = Header(None)):
-    payload_body = await request.body()
-    verify_signature(payload_body, x_hub_signature_256)
+async def github_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    x_hub_signature_256: str | None = Header(default=None),
+) -> dict[str, str | int]:
+    body = await request.body()
+    verify_signature(body, x_hub_signature_256)
     try:
-        data = json.loads(payload_body)
-    except json.JSONDecodeError:
+        data = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(status_code=400, detail="Invalid JSON payload") from None
+    if not isinstance(data, dict):
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
-    event_type = request.headers.get("X-GitHub-Event")
-    if event_type == "pull_request":
-        action = data.get("action")
-        if action in ["opened", "synchronize"]:
-            payload = GithubPayload(**data)
-            background_tasks.add_task(run_agent_workflow, payload)
-            return {"status" : "accepted", "action" : action}
-    return {"status" : "ignored", "event" : event_type}
+
+    event_type = request.headers.get("X-GitHub-Event", "")
+    action = data.get("action")
+    if event_type == "pull_request" and action in {"opened", "synchronize"}:
+        try:
+            payload = GithubPayload.model_validate(data)
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail=exc.errors()) from exc
+        background_tasks.add_task(run_agent_workflow, payload)
+        return {"status": "accepted", "action": action, "number": payload.number}
+    return {"status": "ignored", "event": event_type}

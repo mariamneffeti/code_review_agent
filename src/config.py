@@ -1,1 +1,16 @@
-GITHUB_WEBHOOK_SECRET="086fb607adcce7d98564c7430d0c40445e949b8e6104f9285f642bbe750bdb13"
+"""Application configuration loaded from environment variables."""
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    WEBHOOK_SECRET: str = ""
+    GITHUB_TOKEN: str = ""
+    GROQ_API_KEY: str = ""
+    GOOGLE_API_KEY: str = ""
+    MAX_ITERATIONS: int = 5
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+
+settings = Settings()
