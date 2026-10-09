@@ -1,6 +1,7 @@
 """LangGraph wiring for a bounded ReAct pull request review."""
 
 from typing import Any
+from dataclasses import asdict
 
 from langgraph.graph import END, StateGraph
 
@@ -24,6 +25,10 @@ class ReviewGraph:
         return self.graph.invoke(state)
 
 
+def _state_value(state: AgentState | dict[str, Any], key: str) -> Any:
+    return getattr(state, key) if isinstance(state, AgentState) else state[key]
+
+
 def build_review_graph(
     llm: Any,
     tools: dict[str, Any] | None = None,
@@ -36,16 +41,16 @@ def build_review_graph(
     workflow.add_node("observe", observe)
     workflow.set_entry_point("think")
     workflow.add_conditional_edges(
-        "think", lambda state: END if state["done"] else "act",
+        "think", lambda state: END if _state_value(state, "done") else "act",
         {"act": "act", END: END},
     )
     workflow.add_edge("act", "observe")
     workflow.add_conditional_edges(
-        "observe", lambda state: END if state["done"] else "think",
+        "observe", lambda state: END if _state_value(state, "done") else "think",
         {"think": "think", END: END},
     )
     compiled = workflow.compile()
-    selected_tools = tools or {
+    selected_tools = tools if tools is not None else {
         "fetch_pr_diff": fetch_pr_diff,
         "post_review_comment": post_review_comment,
     }
@@ -67,7 +72,7 @@ def run_agent(graph: Any, payload: GithubPayload | dict[str, Any]) -> dict[str, 
         "llm": graph.llm,
         "tools": graph.tools,
     })
-    return response
+    return asdict(response) if isinstance(response, AgentState) else response
 
 
 async def run_review(payload: GithubPayload) -> dict[str, Any]:
