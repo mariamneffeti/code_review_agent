@@ -1,3 +1,5 @@
+![CI](https://github.com/mariamneffeti/code_review_agent/actions/workflows/ci.yml/badge.svg)
+
 ```text
 pr-review-agent/
 ├── .github/
