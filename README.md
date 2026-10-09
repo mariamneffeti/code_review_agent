@@ -1,58 +1,128 @@
-![CI](https://github.com/mariamneffeti/code_review_agent/actions/workflows/ci.yml/badge.svg)
+# Code Review Agent
+
+An event driven AI service that reviews GitHub pull requests with a bounded LangGraph workflow and GitHub REST tools.
+
+[![CI](https://github.com/mariamneffeti/code_review_agent/actions/workflows/ci.yml/badge.svg)](https://github.com/mariamneffeti/code_review_agent/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.11%2B-blue)
+![License](https://img.shields.io/badge/license-not%20specified-lightgrey)
+
+## Demo
+
+<!-- Add the demo GIF at docs/demo.gif when it is ready. -->
+
+![Pull request review demo](docs/demo.gif)
+
+## Features
+
+- FastAPI webhook listener with GitHub SHA-256 signature verification.
+- Routes pull request `opened` and `synchronize` events to a background review task.
+- LangGraph ReAct loop with a configurable iteration limit.
+- GitHub REST tools to fetch a pull request diff and post a review comment.
+- LLM provider selection through Groq or Google API credentials.
+- Mocked HTTP and model tests that make no real API calls.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    GH[GitHub webhook] -->|HMAC SHA-256| API[FastAPI listener]
+    API -->|opened / synchronize| BG[Background review task]
+    BG --> G[LangGraph ReAct workflow]
+    G --> LLM[Groq or Google model]
+    G --> DIFF[Fetch PR diff]
+    G --> COMMENT[Post review comment]
+    DIFF --> REST[GitHub REST API]
+    COMMENT --> REST
+```
+
+## Stack
+
+- Python 3.11+, FastAPI, Pydantic Settings
+- LangGraph and LangChain provider integrations (Groq, Google Generative AI)
+- httpx for GitHub REST requests
+- pytest, pytest-asyncio, Ruff, Docker Compose
+
+## Quickstart
+
+Docker is the recommended local setup.
+
+```bash
+cp .env.example .env
+# Edit .env and set WEBHOOK_SECRET plus GITHUB_TOKEN and one model API key.
+docker compose up --build app
+```
+
+The API will be available at `http://localhost:8000`; check `http://localhost:8000/health`.
+The `ngrok` service is included for webhook delivery from GitHub. Set `NGROK_AUTHTOKEN` in your shell or `.env`, then run `docker compose up ngrok`.
+
+To run the app directly instead:
+
+```bash
+python -m pip install -e ".[test]"
+uvicorn src.listener.app:app --reload
+```
+
+## Configuration
+
+Copy [.env.example](.env.example) to `.env` and fill in the values:
+
+| Variable | Purpose |
+| --- | --- |
+| `GITHUB_TOKEN` | Token with permission to read pull requests and create issue comments |
+| `GROQ_API_KEY` | Groq model credential; preferred when both provider keys are set |
+| `GOOGLE_API_KEY` | Google Generative AI credential used when the Groq key is empty |
+| `WEBHOOK_SECRET` | Shared secret configured for the GitHub webhook |
+| `MAX_ITERATIONS` | Maximum think/act/observe cycles per review (default: `5`) |
+
+## Testing
+
+The tests mock the LLM and HTTP responses; they do not contact GitHub or a model provider.
+
+```bash
+python -m pip install -e ".[test]"
+pytest -q
+```
+
+To run them in the isolated container:
+
+```bash
+docker compose -f docker-compose.test.yml run --rm test-runner
+```
+
+## Project structure
 
 ```text
-pr-review-agent/
-├── .github/
-│   └── workflows/
-│       ├── ci.yml               # lint + test on every push
-│       ├── deploy.yml           # build & push Docker image on main
-│       └── pr-agent-check.yml   # meta: runs the agent on its own PRs
-│
-├── src/
-│   ├── listener/
-│   │   ├── __init__.py
-│   │   ├── app.py               # FastAPI entrypoint
-│   │   ├── webhook.py           # HMAC validation, event routing
-│   │   └── schemas.py           # Pydantic models for GH payloads
-│   │
-│   ├── agent/
-│   │   ├── __init__.py
-│   │   ├── graph.py             # LangGraph state machine
-│   │   ├── state.py             # AgentState dataclass
-│   │   ├── nodes.py             # think / act / observe node fns
-│   │   └── prompts.py           # system + ReAct prompt templates
-│   │
-│   ├── tools/
-│   │   ├── __init__.py
-│   │   ├── codebase_search.py   # grep over collected context
-│   │   ├── semgrep_scan.py      # security + secret detection
-│   │   ├── complexity.py        # Big-O estimation tool
-│   │   └── sandbox.py           # E2B build + test runner
-│   │
-│   ├── github/
-│   │   ├── __init__.py
-│   │   ├── context.py           # collect diff + related files
-│   │   ├── comments.py          # post inline suggestion blocks
-│   │   └── fix_branch.py        # push ai-fix-{pr} commits
-│   │
-│   └── config.py                # settings via pydantic-settings
-│
-├── tests/
-│   ├── unit/
-│   │   ├── test_webhook.py
-│   │   ├── test_tools.py
-│   │   └── test_context.py
-│   ├── integration/
-│   │   └── test_agent_flow.py   # mocked E2B + GH API
-│   └── fixtures/
-│       ├── sample_payload.json
-│       └── sample_diff.patch
-│
-├── Dockerfile
-├── docker-compose.yml           # local dev: app + ngrok for webhooks
-├── docker-compose.test.yml      # isolated test environment
-├── pyproject.toml               # deps via uv/poetry
-├── .env.example
-└── README.md
+src/
+├── listener/   # FastAPI app, webhook verification, GitHub payload schemas
+├── agent/      # AgentState, prompts, ReAct nodes, LangGraph workflow
+├── tools/      # GitHub API and analysis tools
+├── github/     # GitHub context, comments, and branch helpers
+└── config.py   # Environment-backed settings
+tests/
+├── unit/       # Listener and tool tests
+├── integration/# Mocked graph workflow tests
+└── fixtures/   # Sample webhook and diff data
 ```
-![alt text](image.png)
+
+## Key technical decisions
+
+- Verify the HMAC against the raw request body before parsing JSON, as required by GitHub's webhook signature scheme.
+- Use FastAPI background tasks so webhook acknowledgement does not wait for a review to finish.
+- Keep model and tool functions injectable in the graph for deterministic, offline tests.
+- Bound each agent run with `MAX_ITERATIONS` to prevent unbounded model/tool loops.
+- Keep GitHub API access behind small functions with typed parameters and explicit error reporting.
+
+## Roadmap
+
+- Add inline review annotations tied to changed file lines.
+- Add richer repository context retrieval and review configuration.
+- Add operational metrics and structured review logs.
+- Add a real webhook-to-review demo GIF.
+
+## License
+
+No license has been selected for this repository yet. Add the chosen license before granting reuse rights.
+
+## Contact
+
+Open an issue in [this repository](https://github.com/mariamneffeti/code_review_agent) for questions or feedback.
