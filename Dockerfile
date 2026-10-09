@@ -2,6 +2,7 @@ FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
+ARG INSTALL_TEST_DEPS=false
 
 WORKDIR /app
 
@@ -9,9 +10,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml .
+COPY pyproject.toml README.md ./
 COPY src/ ./src/
-RUN pip install --no-cache-dir .
+RUN if [ "$INSTALL_TEST_DEPS" = "true" ]; then \
+      pip install --no-cache-dir ".[test]"; \
+    else \
+      pip install --no-cache-dir .; \
+    fi
 
 EXPOSE 8000
 

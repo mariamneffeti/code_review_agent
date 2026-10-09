@@ -1,13 +1,12 @@
 services:
   test-runner:
-    build: .
-    volumes:
-      - ./src:/app/src
-      - ./tests:/app/tests
-    env_file:
-      - .env
+    build:
+      context: .
+      args:
+        INSTALL_TEST_DEPS: "true"
     command: pytest tests/
-    depends_on:
-      - ngrok
     environment:
-      - ENV=test
+      WEBHOOK_SECRET: test-secret
+      GITHUB_TOKEN: test-token
+      GROQ_API_KEY: ""
+      GOOGLE_API_KEY: ""
